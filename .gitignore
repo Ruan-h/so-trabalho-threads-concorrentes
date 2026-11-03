@@ -1,0 +1,19 @@
+# Binários e objetos compilados
+*.o
+analista
+cliente
+atendimento
+
+# Arquivos de dados em tempo de execução
+demanda.txt
+lng.txt
+
+# Documentação interna (exceto README)
+*.md
+!README.md
+
+# Sistema operacional / editores
+.vscode/
+*.swp
+*~
+.DS_Store
