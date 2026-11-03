@@ -13,13 +13,15 @@ struct Cliente {
     int            tempo_paciencia;  /* ms: alta → X/2, baixa → X          */
 };
 
-/* ── Fila circular (implementada pela dupla) — tipo opaco ───────────────── */
+/* ── Fila circular / EDF ─────────────────────────────────────────────────── */
 struct FilaCircular;
 
 /* ── API da fila/escalonador (implementada pela dupla) ───────────────────── */
-int  fila_inserir(struct Cliente *c); /* 0 = OK, -1 = cheia                 */
-int  fila_tamanho(void);             /* número de clientes aguardando       */
-void yield_thread(void);             /* cede a CPU de volta ao escalonador  */
+int  fila_inserir(struct Cliente *c);  /* 0 = OK, -1 = cheia                 */
+int  fila_remover(struct Cliente *out);/* 0 = OK, -1 = vazia                 */
+int  fila_tamanho(void);              /* número de clientes aguardando       */
+int  fila_vazia(void);                /* 1 = vazia, 0 = tem elementos        */
+void yield_thread(void);              /* cede a CPU de volta ao escalonador  */
 void registrar_thread(void (*fn)(void *), void *arg); /* registra thread    */
 
 /* ── Globais compartilhados entre todos os módulos ───────────────────────── */
