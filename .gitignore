@@ -7,6 +7,7 @@ atendimento
 # Arquivos de dados em tempo de execução
 demanda.txt
 lng.txt
+analista_pid.txt
 
 # Documentação interna (exceto README)
 *.md

@@ -4,27 +4,25 @@
 #include <time.h>
 #include <sys/types.h>
 
-/* ── Representação de um cliente na fila ─────────────────────────────────── */
 struct Cliente {
-    pid_t          pid;
-    int            prioridade;       /* 0 = baixa, 1 = alta */
-    struct timespec hora_chegada;    /* CLOCK_MONOTONIC no instante do fork */
-    int            tempo_atendimento;/* ms, lido de demanda.txt             */
-    int            tempo_paciencia;  /* ms: alta → X/2, baixa → X          */
+    pid_t           pid;
+    int             prioridade;        /* 0 = baixa, 1 = alta */
+    struct timespec hora_chegada;      /* CLOCK_MONOTONIC ao entrar na fila */
+    int             tempo_atendimento; /* lido de demanda.txt */
+    double          tempo_paciencia;   /* ms: alta = X/2.0, baixa = X */
 };
 
-/* ── Fila circular / EDF ─────────────────────────────────────────────────── */
 struct FilaCircular;
 
-/* ── API da fila/escalonador (implementada pela dupla) ───────────────────── */
-int  fila_inserir(struct Cliente *c);  /* 0 = OK, -1 = cheia                 */
-int  fila_remover(struct Cliente *out);/* 0 = OK, -1 = vazia                 */
-int  fila_tamanho(void);              /* número de clientes aguardando       */
-int  fila_vazia(void);                /* 1 = vazia, 0 = tem elementos        */
-void yield_thread(void);              /* cede a CPU de volta ao escalonador  */
-void registrar_thread(void (*fn)(void *), void *arg); /* registra thread    */
+/* API da fila e do escalonador */
+int  fila_inserir(struct Cliente *c);
+int  fila_remover(struct Cliente *out);
+int  fila_tamanho(void);
+int  fila_vazia(void);
+void yield_thread(void);
+void registrar_thread(void (*fn)(void *), void *arg);
 
-/* ── Globais compartilhados entre todos os módulos ───────────────────────── */
+/* Variaveis globais compartilhadas */
 extern volatile int flag_encerrar;
 extern volatile int clientes_totais;
 extern volatile int clientes_satisfeitos;

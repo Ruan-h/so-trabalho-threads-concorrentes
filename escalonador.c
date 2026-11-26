@@ -60,6 +60,10 @@ void yield_thread(void) {
         return;
     }
 
+    if (proxima == anterior) {
+        return;
+    }
+
     thread_atual = proxima;
     swapcontext(&threads[anterior].ctx, &threads[proxima].ctx);
 }

@@ -1,4 +1,4 @@
-#define _POSIX_C_SOURCE 200809L
+#define _DEFAULT_SOURCE
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,98 +12,103 @@
 
 #include "estruturas.h"
 
-/* Aguarda até 2 s pelo filho parar (SIGSTOP) em intervalos de 1 ms */
+static int fd_demanda = -1;
+
+/* Aguarda o processo filho parar em SIGSTOP apos gravar demanda.txt */
 static int aguarda_sigstop(pid_t pid)
 {
     int status;
-    for (int tentativas = 0; tentativas < 2000; ++tentativas) {
-        pid_t r = waitpid(pid, &status, WNOHANG | WUNTRACED);
-        if (r == pid && WIFSTOPPED(status))
-            return 0;
-        /* 1 ms entre tentativas — tempo suficiente para o filho rodar */
-        struct timespec ts = {0, 1000000L};
-        nanosleep(&ts, NULL);
-    }
-    return -1; /* timeout */
+    pid_t r;
+    do {
+        r = waitpid(pid, &status, WUNTRACED);
+    } while (r < 0 && errno == EINTR);
+
+    if (r == pid && WIFSTOPPED(status))
+        return 0;
+
+    return -1;
 }
 
-/* Lê o inteiro de demanda.txt via I/O de baixo nível */
+/* Leitura rapida de demanda.txt via pread no offset 0 */
 static int ler_demanda(void)
 {
-    char buf[32];
-    int fd = open("demanda.txt", O_RDONLY);
-    if (fd < 0)
-        return 1; /* fallback seguro */
+    char buf[16];
+    if (fd_demanda < 0) {
+        fd_demanda = open("demanda.txt", O_RDONLY);
+        if (fd_demanda < 0)
+            return 1;
+    }
 
-    ssize_t n = read(fd, buf, sizeof(buf) - 1);
-    close(fd);
+    ssize_t n = pread(fd_demanda, buf, sizeof(buf) - 1, 0);
+    if (n <= 0) {
+        close(fd_demanda);
+        fd_demanda = open("demanda.txt", O_RDONLY);
+        if (fd_demanda < 0)
+            return 1;
+        n = pread(fd_demanda, buf, sizeof(buf) - 1, 0);
+        if (n <= 0)
+            return 1;
+    }
 
-    if (n <= 0)
-        return 1;
+    int val = 0;
+    for (ssize_t i = 0; i < n && buf[i] >= '0' && buf[i] <= '9'; ++i) {
+        val = val * 10 + (buf[i] - '0');
+    }
+    return (val > 0) ? val : 1;
+}
 
-    buf[n] = '\0';
-    return atoi(buf);
+/* Cria o processo cliente via vfork para evitar copia de tabelas de paginas */
+static pid_t criar_processo_cliente(void)
+{
+    pid_t pid = vfork();
+    if (pid == 0) {
+        execl("./cliente", "cliente", (char *)NULL);
+        _exit(1);
+    }
+    return pid;
 }
 
 void thread_recepcao(void *arg)
 {
     (void)arg;
 
-    int  clientes_criados = 0;
-    char *const argv_cliente[] = {"./cliente", NULL};
+    int clientes_criados = 0;
 
     while (!flag_encerrar &&
            (param_N == 0 || clientes_criados < param_N)) {
 
-        /* Bloqueia criação quando a fila está cheia */
         if (fila_tamanho() >= 100) {
             yield_thread();
             continue;
         }
 
-        pid_t pid = fork();
+        pid_t pid = criar_processo_cliente();
         if (pid < 0) {
-            /* fork falhou — aguarda um ciclo e tenta de novo */
             yield_thread();
             continue;
         }
 
-        if (pid == 0) {
-            /* ── filho ── */
-            execv("./cliente", argv_cliente);
-            /* Se execv retornou, algo deu errado */
-            _exit(1);
-        }
-
-        /* ── pai (thread Recepção) ── */
-
-        /* Registra hora_chegada IMEDIATAMENTE após o fork */
-        struct Cliente c;
-        memset(&c, 0, sizeof(c));
-        c.pid = pid;
-        clock_gettime(CLOCK_MONOTONIC, &c.hora_chegada);
-
-        /* Espera o filho dar SIGSTOP (ele escreve demanda.txt antes disso) */
         if (aguarda_sigstop(pid) != 0) {
-            /* Filho não parou — mata e ignora */
             kill(pid, SIGKILL);
-            waitpid(pid, NULL, 0);
+            while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
             yield_thread();
             continue;
         }
 
+        struct Cliente c;
+        c.pid = pid;
         c.tempo_atendimento = ler_demanda();
 
-        /* Sorteia prioridade: 0 = baixa, 1 = alta */
-        c.prioridade = rand() % 2;
+        c.prioridade = rand() & 1;
         c.tempo_paciencia = (c.prioridade == 1)
-                            ? param_X / 2
-                            : param_X;
+                            ? (param_X / 2.0)
+                            : (double)param_X;
+
+        clock_gettime(CLOCK_MONOTONIC, &c.hora_chegada);
 
         if (fila_inserir(&c) != 0) {
-            /* Fila ainda lotada entre a checagem e o insert (race window) */
             kill(pid, SIGKILL);
-            waitpid(pid, NULL, 0);
+            while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
             yield_thread();
             continue;
         }
@@ -112,5 +117,10 @@ void thread_recepcao(void *arg)
         __atomic_add_fetch(&clientes_totais, 1, __ATOMIC_RELAXED);
 
         yield_thread();
+    }
+
+    if (fd_demanda >= 0) {
+        close(fd_demanda);
+        fd_demanda = -1;
     }
 }

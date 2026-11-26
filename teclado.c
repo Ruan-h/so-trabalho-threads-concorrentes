@@ -1,11 +1,8 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include <stdio.h>
-#include <string.h>
 #include <unistd.h>
 #include <termios.h>
-#include <sys/select.h>
-#include <time.h>
+#include <poll.h>
 
 #include "estruturas.h"
 
@@ -13,27 +10,26 @@ void thread_teclado(void *arg)
 {
     (void)arg;
 
-    /* Salva configuração original do terminal */
     struct termios orig, raw;
-    tcgetattr(STDIN_FILENO, &orig);
+    int is_tty = (tcgetattr(STDIN_FILENO, &orig) == 0);
+    if (is_tty) {
+        raw = orig;
+        /* Desativa modo canonico e echo para leitura imediata sem Enter */
+        raw.c_lflag &= (tcflag_t)~(ICANON | ECHO);
+        raw.c_cc[VMIN]  = 1;
+        raw.c_cc[VTIME] = 0;
+        tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+    }
 
-    raw = orig;
-    /* Desativa modo canônico e echo: leitura caractere a caractere, sem eco */
-    raw.c_lflag &= (tcflag_t)~(ICANON | ECHO);
-    raw.c_cc[VMIN]  = 1;
-    raw.c_cc[VTIME] = 0;
-    tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+    struct pollfd pfd = {
+        .fd = STDIN_FILENO,
+        .events = POLLIN,
+        .revents = 0
+    };
 
     while (!flag_encerrar) {
-        fd_set fds;
-        FD_ZERO(&fds);
-        FD_SET(STDIN_FILENO, &fds);
-
-        /* Timeout de 50 ms para não bloquear o escalonador por muito tempo */
-        struct timeval tv = {0, 50000};
-
-        int ret = select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv);
-        if (ret > 0 && FD_ISSET(STDIN_FILENO, &fds)) {
+        /* Timeout 0 para nao bloquear as demais threads no escalonador */
+        if (poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLIN)) {
             char c;
             if (read(STDIN_FILENO, &c, 1) == 1) {
                 if (c == 's' || c == 'S')
@@ -44,6 +40,7 @@ void thread_teclado(void *arg)
         yield_thread();
     }
 
-    /* Restaura terminal antes de sair */
-    tcsetattr(STDIN_FILENO, TCSANOW, &orig);
+    if (is_tty) {
+        tcsetattr(STDIN_FILENO, TCSANOW, &orig);
+    }
 }

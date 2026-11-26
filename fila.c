@@ -32,10 +32,15 @@ int fila_inserir(struct Cliente *c) {
     double novo_deadline = calcular_deadline(c);
     int i = num_elementos - 1;
 
-    // Desloca elementos com deadline maior para o final
-    while (i >= 0 && calcular_deadline(&fila[i]) > novo_deadline) {
-        fila[i + 1] = fila[i];
-        i--;
+    while (i >= 0) {
+        double dl = calcular_deadline(&fila[i]);
+        if (dl > novo_deadline ||
+            (dl == novo_deadline && fila[i].tempo_atendimento > c->tempo_atendimento)) {
+            fila[i + 1] = fila[i];
+            i--;
+        } else {
+            break;
+        }
     }
 
     fila[i + 1] = *c;
@@ -43,15 +48,14 @@ int fila_inserir(struct Cliente *c) {
     return 0;
 }
 
-/* Remove e retorna o cliente com a deadline mais próxima */
 int fila_remover(struct Cliente *out) {
     if (num_elementos == 0) {
-        return -1; // Fila vazia
+        return -1;
     }
 
     *out = fila[0];
-    for (int i = 0; i < num_elementos - 1; i++) {
-        fila[i] = fila[i + 1];
+    if (num_elementos > 1) {
+        memmove(&fila[0], &fila[1], (size_t)(num_elementos - 1) * sizeof(struct Cliente));
     }
     num_elementos--;
     return 0;

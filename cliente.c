@@ -11,7 +11,7 @@
 int main(void)
 {
     int tempo;
-    srand((unsigned)time(NULL) ^ (getpid() << 16));
+    srand((unsigned)time(NULL));
     int x = rand() % 10;
     if (x == 0)
         tempo = 15;
@@ -32,12 +32,10 @@ int main(void)
     if (sem != SEM_FAILED)
         sem_wait(sem);
 
-    usleep(tempo * 1000);
+    usleep(tempo);
 
-    if (sem != SEM_FAILED) {
+    if (sem != SEM_FAILED)
         sem_post(sem);
-        sem_close(sem);
-    }
 
     return 0;
 }
