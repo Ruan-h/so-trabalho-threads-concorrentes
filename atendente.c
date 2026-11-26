@@ -12,36 +12,19 @@
 #include <sys/stat.h>
 #include <time.h>
 
-static void descarregar_lote_lng(sem_t *sem_block, pid_t *lote, int qtd) {
-    if (qtd <= 0 || sem_block == SEM_FAILED) return;
+static void acionar_analista_e_aguardar(void) {
+    if (analista_pid <= 0) return;
 
-    char buf[256];
-    int offset = 0;
-    for (int i = 0; i < qtd; ++i) {
-        offset += snprintf(buf + offset, sizeof(buf) - (size_t)offset, "%d\n", lote[i]);
+    struct stat st;
+    if (kill(analista_pid, SIGUSR1) < 0) {
+        return;
     }
-
-    while (sem_wait(sem_block) < 0 && errno == EINTR) {}
-    int fd = open("lng.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
-    if (fd >= 0) {
-        ssize_t r = write(fd, buf, (size_t)offset);
-        (void)r;
-        close(fd);
-    }
-    sem_post(sem_block);
-
-    if (analista_pid > 0) {
-        struct stat st;
-        if (kill(analista_pid, SIGUSR1) < 0) {
-            return;
-        }
-        int tentativas = 0;
-        while (stat("lng.txt", &st) == 0 && st.st_size > 0) {
-            usleep(50);
-            if (++tentativas % 20 == 0) {
-                if (kill(analista_pid, SIGUSR1) < 0) {
-                    break;
-                }
+    int tentativas = 0;
+    while (stat("lng.txt", &st) == 0 && st.st_size > 0) {
+        usleep(50);
+        if (++tentativas % 20 == 0) {
+            if (kill(analista_pid, SIGUSR1) < 0) {
+                break;
             }
         }
     }
@@ -52,7 +35,7 @@ void thread_atendente(void *arg) {
 
     sem_t *sem_atend = sem_open("/sem_atend", O_RDWR);
     sem_t *sem_block = sem_open("/sem_block", O_RDWR);
-    pid_t lote_pids[10];
+    int fd_lng = open("lng.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
     int pendentes_lng = 0;
 
     while (1) {
@@ -91,9 +74,23 @@ void thread_atendente(void *arg) {
             __atomic_add_fetch(&clientes_satisfeitos, 1, __ATOMIC_RELAXED);
         }
 
-        lote_pids[pendentes_lng++] = c.pid;
-        if (pendentes_lng >= 10) {
-            descarregar_lote_lng(sem_block, lote_pids, pendentes_lng);
+        if (sem_block != SEM_FAILED) {
+            char pid_buf[32];
+            int len = snprintf(pid_buf, sizeof(pid_buf), "%d\n", (int)c.pid);
+
+            while (sem_wait(sem_block) < 0 && errno == EINTR) {}
+            if (fd_lng < 0) {
+                fd_lng = open("lng.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+            }
+            if (fd_lng >= 0 && len > 0) {
+                ssize_t w = write(fd_lng, pid_buf, (size_t)len);
+                (void)w;
+            }
+            sem_post(sem_block);
+        }
+
+        if (++pendentes_lng >= 10) {
+            acionar_analista_e_aguardar();
             pendentes_lng = 0;
         }
 
@@ -101,9 +98,10 @@ void thread_atendente(void *arg) {
     }
 
     if (pendentes_lng > 0) {
-        descarregar_lote_lng(sem_block, lote_pids, pendentes_lng);
+        acionar_analista_e_aguardar();
     }
 
+    if (fd_lng >= 0) close(fd_lng);
     if (sem_atend != SEM_FAILED) sem_close(sem_atend);
     if (sem_block != SEM_FAILED) sem_close(sem_block);
 }

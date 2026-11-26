@@ -88,6 +88,10 @@ void thread_recepcao(void *arg)
             continue;
         }
 
+        struct Cliente c;
+        c.pid = pid;
+        clock_gettime(CLOCK_MONOTONIC, &c.hora_chegada);
+
         if (aguarda_sigstop(pid) != 0) {
             kill(pid, SIGKILL);
             while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
@@ -95,16 +99,12 @@ void thread_recepcao(void *arg)
             continue;
         }
 
-        struct Cliente c;
-        c.pid = pid;
         c.tempo_atendimento = ler_demanda();
 
         c.prioridade = rand() & 1;
         c.tempo_paciencia = (c.prioridade == 1)
                             ? (param_X / 2.0)
                             : (double)param_X;
-
-        clock_gettime(CLOCK_MONOTONIC, &c.hora_chegada);
 
         if (fila_inserir(&c) != 0) {
             kill(pid, SIGKILL);
